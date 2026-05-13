@@ -7,7 +7,7 @@
 
 class GCounter {
   public:
-    GCounter(uint8_t num_nodes, uint8_t node_id) : counts_{num_nodes, node_id} {
+    GCounter(uint8_t num_nodes, uint8_t node_id) : counts_(num_nodes), node_id_(node_id) {
       if (node_id >= num_nodes) {
         throw std::invalid_argument("Node ID must be less than the number of nodes");
       }
