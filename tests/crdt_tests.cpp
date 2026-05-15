@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include "g_counter.hpp"
 #include "pn_counter.hpp"
+#include "g_set.hpp"
 
 // TODO: add tests when implementing CRDT-types
 
@@ -136,4 +137,90 @@ TEST_CASE("PNCounter, value() can be negative") {
   PNCounter merged = a.merge(b);
   REQUIRE(merged.value() == -3);
   REQUIRE(merged.value() < 0);
+}
+
+// G-Set
+
+TEST_CASE("GSet<int>, commutativity: a.merge(b) == b.merge(a)") {
+  GSet<int> a;
+  GSet<int> b;
+
+  a.add(1);
+  a.add(2);
+  b.add(2);
+  b.add(3);
+
+  REQUIRE(a.merge(b) == b.merge(a));
+}
+
+TEST_CASE("GSet<int>, associativity: a.merge(b).merge(c) == a.merge(b.merge(c))") {
+  GSet<int> a;
+  GSet<int> b;
+  GSet<int> c;
+
+  a.add(1);
+  b.add(2);
+  c.add(3);
+
+  REQUIRE(a.merge(b).merge(c) == a.merge(b.merge(c)));
+}
+
+TEST_CASE("GSet<int>, idempotency: a.merge(a) == a") {
+  GSet<int> a;
+
+  a.add(1);
+  a.add(2);
+
+  REQUIRE(a.merge(a) == a);
+}
+
+TEST_CASE("GSet<int>, contains() returns correct results after merge") {
+  GSet<int> a;
+  GSet<int> b;
+
+  a.add(1);
+  b.add(2);
+
+  GSet<int> merged = a.merge(b);
+
+  REQUIRE(merged.contains(1));
+  REQUIRE(merged.contains(2));
+  REQUIRE_FALSE(merged.contains(3));
+}
+
+TEST_CASE("GSet<int>, adding same element twice does not duplicate it") {
+  GSet<int> a;
+
+  a.add(42);
+  a.add(42);
+
+  REQUIRE(a.size() == 1);
+}
+
+TEST_CASE("GSet<std::string>, commutativity: a.merge(b) == b.merge(a)") {
+  GSet<std::string> a;
+  GSet<std::string> b;
+
+  a.add("hello");
+  a.add("world");
+  b.add("world");
+  b.add("crdt");
+
+  REQUIRE(a.merge(b) == b.merge(a));
+}
+
+TEST_CASE("GSet<std::string>, adding same element twice does not duplicate it") {
+  GSet<std::string> a;
+
+  a.add("duplicate");
+  a.add("duplicate");
+
+  REQUIRE(a.size() == 1);
+}
+
+TEST_CASE("GSet, remove() throws std::logic_error") {
+  GSet<int> a;
+  a.add(1);
+
+  REQUIRE_THROWS_AS(a.remove(1), std::logic_error);
 }
