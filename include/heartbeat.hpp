@@ -7,7 +7,6 @@
 #include <atomic>
 #include <algorithm>
 #include <mutex>
-#include <iostream>
 #include <string>
 
 
@@ -73,6 +72,19 @@ public:
         return active_peers;
     }
 
+    // retrieves vector of inactive peers
+    std::vector<Peer> inactive_peers() const {
+        // empty vector of peers
+        std::vector<Peer> inactive_peers;
+
+        // iterates through all peers
+        for (const Peer& p : peers_) {
+            // push back inactive peer
+            if (!is_active(p)) inactive_peers.push_back(p);
+        }
+        return inactive_peers;
+    }
+
 private:
 
     void send_loop() {
@@ -83,7 +95,7 @@ private:
         while (running_) {
 
             // heartbeat payload
-            std::string msg = "heartbeat";
+            std::string msg = "heartbeat:" + std::to_string(listen_port_);
 
             // sends heartbeat to each peer
             for (const auto& peer : peers_) {
@@ -127,18 +139,27 @@ private:
                     error); // writes error, if any
 
             if (!error && len > 0) {
+                // construct string from raw buffer bytes
+                std::string payload(buffer.data(), len);
+                // find seperator between type and port
+                auto seperator = payload.find(':');
+                if (seperator == std::string::npos) continue; //skip packets without seperator
+                // extract port from payload (after seperator)
+                std::string port_str = payload.substr(seperator + 1);
+                //build key (address + port)
+                std::string key = sender.address().to_string() + ":" + port_str;
                 // retrieves the peer sending the data
                 auto it = std::find_if(
                         peers_.begin(),
                         peers_.end(),
                         [&] (const Peer& p) {
-                    return p.address == sender.address().to_string() && p.port == sender.port();
+                    return peer_key(p) == key;
                 });
                 if (it == peers_.end()) continue; //unknown sender
                 //lock when writing to last_active_
                 std::lock_guard<std::mutex> lock(m_);
                 //sets last active to current time for sender node
-                last_active_[peer_key(*it)] = std::chrono::steady_clock::now();
+                last_active_[key] = std::chrono::steady_clock::now();
             }
             // thread sleeps for 100ms; results in 10 checks every second
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
