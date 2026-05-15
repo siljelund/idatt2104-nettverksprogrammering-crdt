@@ -2,6 +2,7 @@
 #include "g_counter.hpp"
 #include "pn_counter.hpp"
 #include "g_set.hpp"
+#include "or_set.hpp"
 
 // TODO: add tests when implementing CRDT-types
 
@@ -223,4 +224,105 @@ TEST_CASE("GSet, remove() throws std::logic_error") {
   a.add(1);
 
   REQUIRE_THROWS_AS(a.remove(1), std::logic_error);
+}
+
+// ORSet
+
+TEST_CASE("ORSet<std::string>, commutativity: a.merge(b) == b.merge(a)") {
+  ORSet<std::string> a;
+  ORSet<std::string> b;
+
+  a.add("x");
+  a.add("y");
+  b.add("y");
+  b.add("z");
+
+  REQUIRE(a.merge(b) == b.merge(a));
+}
+
+TEST_CASE("ORSet<std::string>, associativity: a.merge(b).merge(c) == a.merge(b.merge(c))") {
+  ORSet<std::string> a;
+  ORSet<std::string> b;
+  ORSet<std::string> c;
+
+  a.add("x");
+  b.add("y");
+  c.add("z");
+
+  REQUIRE(a.merge(b).merge(c) == a.merge(b.merge(c)));
+}
+
+TEST_CASE("ORSet<std::string>, idempotency: a.merge(a) == a") {
+  ORSet<std::string> a;
+
+  a.add("x");
+  a.add("y");
+
+  REQUIRE(a.merge(a) == a);
+}
+
+TEST_CASE("ORSet<std::string>, add and remove works correctly") {
+  ORSet<std::string> a;
+
+  a.add("x");
+  REQUIRE(a.contains("x"));
+  REQUIRE(a.size() == 1);
+
+  a.remove("x");
+  REQUIRE_FALSE(a.contains("x"));
+  REQUIRE(a.size() == 0);
+}
+
+TEST_CASE("ORSet<std::string>, re-add after remove works correctly") {
+  ORSet<std::string> a;
+
+  a.add("x");
+  a.remove("x");
+  REQUIRE_FALSE(a.contains("x"));
+
+  a.add("x");
+  REQUIRE(a.contains("x"));
+}
+
+TEST_CASE("ORSet<std::string>, concurrent add survives remove on other node") {
+  // Node A adds "x" → tag t1
+  ORSet<std::string> a;
+  a.add("x");
+
+  // Node B syncs state from A → also has tag t1
+  ORSet<std::string> b = a;
+
+  // Node A concurrently adds "x" again → tag t2
+  a.add("x");
+
+  // Node B removes "x" → clears t1, unaware of t2
+  b.remove("x");
+  REQUIRE_FALSE(b.contains("x"));
+
+  // After merge: t2 from A survives → "x" is still in set
+  ORSet<std::string> merged = a.merge(b);
+  REQUIRE(merged.contains("x"));
+}
+
+TEST_CASE("ORSet<int>, commutativity: a.merge(b) == b.merge(a)") {
+  ORSet<int> a;
+  ORSet<int> b;
+
+  a.add(1);
+  a.add(2);
+  b.add(2);
+  b.add(3);
+
+  REQUIRE(a.merge(b) == b.merge(a));
+}
+
+TEST_CASE("ORSet<int>, adding same element twice does not duplicate it") {
+  ORSet<int> a;
+
+  a.add(42);
+  a.add(42);
+
+  // Both adds give separate tags, so size is still 1 (same element)
+  REQUIRE(a.size() == 1);
+  REQUIRE(a.contains(42));
 }
