@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <mutex>
 #include <string>
+#include <stdexcept>
 
 
 class Heartbeat {
@@ -25,7 +26,13 @@ public:
             std::vector<Peer> peers
             )
             : listen_port_(listen_port),
-            peers_(std::move(peers)) {}
+            peers_(std::move(peers)) {
+        if (listen_port_ == 0) throw std::invalid_argument("Port cannot be 0");
+        for (const Peer& p : peers_) {
+            if (p.address.empty()) throw std::invalid_argument("Peer address cannot be empty");
+            if (p.port == 0) throw std::invalid_argument("Peer port cannot be 0");
+        }
+    }
 
     // destructor; called automatically when the object goes out of scope
     ~Heartbeat() {
@@ -47,7 +54,7 @@ public:
     }
 
     // checks if a node is active within TIMEOUT_S seconds
-    bool is_active(const Peer& p) const {
+    [[nodiscard]] bool is_active(const Peer& p) const {
         std::lock_guard<std::mutex> lock(m_); //lock before reading last_active_
         // finds last_active_ value of node
         auto it = last_active_.find(peer_key(p));
@@ -60,7 +67,7 @@ public:
     }
 
     // retrieves vector of active peers
-    std::vector<Peer> active_peers() const {
+    [[nodiscard]] std::vector<Peer> active_peers() const {
         // empty vector of peers
         std::vector<Peer> active_peers;
 
@@ -73,7 +80,7 @@ public:
     }
 
     // retrieves vector of inactive peers
-    std::vector<Peer> inactive_peers() const {
+    [[nodiscard]] std::vector<Peer> inactive_peers() const {
         // empty vector of peers
         std::vector<Peer> inactive_peers;
 
@@ -122,7 +129,7 @@ private:
         // set socket non-blocking to true (avoids forever waiting on packets), affects receive_from
         socket.non_blocking(true);
         // buffer memory for incoming packets
-        std::array<char, 1024> buffer;
+        std::array<char, 1024> buffer{};
 
         // receive loop
         while (running_) {
