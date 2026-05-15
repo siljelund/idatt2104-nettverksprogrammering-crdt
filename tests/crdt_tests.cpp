@@ -3,6 +3,7 @@
 #include "pn_counter.hpp"
 #include "g_set.hpp"
 #include "or_set.hpp"
+#include "lamport_clock.hpp"
 
 // TODO: add tests when implementing CRDT-types
 
@@ -325,4 +326,68 @@ TEST_CASE("ORSet<int>, adding same element twice does not duplicate it") {
   // Both adds give separate tags, so size is still 1 (same element)
   REQUIRE(a.size() == 1);
   REQUIRE(a.contains(42));
+}
+
+// Lamport Clock
+
+TEST_CASE("LamportClock, tick() increments the clock by 1 each time") {
+  LamportClock c;
+
+  REQUIRE(c.tick() == 1);
+  REQUIRE(c.tick() == 2);
+  REQUIRE(c.tick() == 3);
+}
+
+TEST_CASE("LamportClock, update() takes max of local and received, then adds 1") {
+  LamportClock c;
+  c.tick(); // time_ = 1
+
+  // received > local: jumps to received + 1
+  REQUIRE(c.update(5) == 6);
+  REQUIRE(c.value() == 6);
+}
+
+TEST_CASE("LamportClock, update() with lower value still increments by 1") {
+  LamportClock c;
+  c.tick();
+  c.tick();
+  c.tick(); // time_ = 3
+
+  // received < local: max(3, 1) + 1 = 4
+  REQUIRE(c.update(1) == 4);
+  REQUIRE(c.value() == 4);
+}
+
+TEST_CASE("LamportClock, update() with higher value jumps to received + 1") {
+  LamportClock c;
+  c.tick(); // time_ = 1
+
+  // received >> local: max(1, 100) + 1 = 101
+  REQUIRE(c.update(100) == 101);
+  REQUIRE(c.value() == 101);
+}
+
+TEST_CASE("LamportClock, two clocks that ticked the same number of times are equal") {
+  LamportClock a;
+  LamportClock b;
+
+  a.tick();
+  a.tick();
+  b.tick();
+  b.tick();
+
+  REQUIRE(a == b);
+}
+
+TEST_CASE("LamportClock, to_json() and from_json() preserves clock value") {
+  LamportClock original;
+  original.tick();
+  original.tick();
+  original.tick(); // time_ = 3
+
+  nlohmann::json j = original.to_json();
+  LamportClock restored = LamportClock::from_json(j);
+
+  REQUIRE(restored.value() == original.value());
+  REQUIRE(restored == original);
 }
