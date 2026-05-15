@@ -8,8 +8,15 @@ int main(int argc, char* argv[]) {
         << "./editor_demo <port> <peer> <peer>\n" << "Example: ./editor_demo 9000 127.0.0.1:9001 192.168.1.10:9003\n";
         return 1;
     }
-    // convert string to int and cast it as uint16
-    uint16_t port = static_cast<uint16_t>(std::stoi(argv[1]));
+
+    uint16_t port;
+    // try converting string to int and cast it as uint16
+    try {
+        port = static_cast<uint16_t>(std::stoi(argv[1]));
+    } catch(const std::exception&) {
+        std::cerr << "Port must be a number";
+        return 1;
+    }
 
     // empty vector of peers
     std::vector<Heartbeat::Peer> peers;
@@ -29,8 +36,13 @@ int main(int argc, char* argv[]) {
         // store port as input after :
         std::getline(ss, port_str);
 
-        // initialize a peer and push back
-        peers.push_back({address, static_cast<uint16_t>(std::stoi(port_str))});
+        // try initializing a peer and push back
+        try {
+            peers.push_back({address, static_cast<uint16_t>(std::stoi(port_str))});
+        } catch (const std::exception&) {
+            std::cerr << "Invalid peer format: '" << arg << "', expected 'address:port'\n";
+            return 1;
+        }
 
     }
     // initialize and run editor with port and peers values
