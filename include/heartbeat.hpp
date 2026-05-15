@@ -1,11 +1,11 @@
 #pragma once
 
 #include <asio.hpp>
-#include <nlohmann/json.hpp>
 #include <map>
 #include <chrono>
 #include <thread>
 #include <atomic>
+#include <algorithm>
 #include <mutex>
 #include <iostream>
 #include <string>
@@ -22,12 +22,10 @@ public:
 
     // constructor
     Heartbeat(
-            uint8_t node_id,
             uint16_t listen_port,
             std::vector<Peer> peers
             )
-            : node_id_(node_id),
-            listen_port_(listen_port),
+            : listen_port_(listen_port),
             peers_(std::move(peers)) {}
 
     // destructor; called automatically when the object goes out of scope
@@ -50,16 +48,29 @@ public:
     }
 
     // checks if a node is active within TIMEOUT_S seconds
-    bool is_active(uint8_t node_id) const {
+    bool is_active(const Peer& p) const {
         std::lock_guard<std::mutex> lock(m_); //lock before reading last_active_
         // finds last_active_ value of node
-        auto it = last_active_.find(node_id);
+        auto it = last_active_.find(peer_key(p));
         if (it == last_active_.end()) return false; // if node has never been active, returns false
         // retrieves last time node has been active
         auto time_since_active =
                 std::chrono::steady_clock::now() - it -> second;
         //true if time sice active is less than TIMEOUT_S seconds ago
         return time_since_active < std::chrono::seconds(TIMEOUT_S);
+    }
+
+    // retrieves vector of active peers
+    std::vector<Peer> active_peers() const {
+        // empty vector of peers
+        std::vector<Peer> active_peers;
+
+        // iterates through all peers
+        for (const Peer& p : peers_) {
+            // push back active peer
+            if (is_active(p)) active_peers.push_back(p);
+        }
+        return active_peers;
     }
 
 private:
@@ -70,13 +81,9 @@ private:
         asio::ip::udp::socket socket(io, asio::ip::udp::v4());
 
         while (running_) {
-            // build heartbeat payload
-            nlohmann::json packet = {
 
-                    {"node_id", node_id_},
-                    {"type", "heartbeat"}
-            };
-            std::string msg = packet.dump(); //json to string for transmission
+            // heartbeat payload
+            std::string msg = "heartbeat";
 
             // sends heartbeat to each peer
             for (const auto& peer : peers_) {
@@ -120,25 +127,27 @@ private:
                     error); // writes error, if any
 
             if (!error && len > 0) {
-                try {
-                    // parses payload string to json
-                    auto j = nlohmann::json::parse(
-                            buffer.data(), //start
-                            buffer.data() + len); //end
-                    uint8_t id = j.at("node_id").get<uint8_t>(); // retrieves node id
-
-                    //lock when writing to last_active_
-                    std::lock_guard<std::mutex> lock(m_);
-                    //sets last active to current time for sender node
-                    last_active_[id] = std::chrono::steady_clock::now();
-                } catch(...) {} // catches invalid payload with no further action
+                // retrieves the peer sending the data
+                auto it = std::find_if(
+                        peers_.begin(),
+                        peers_.end(),
+                        [&] (const Peer& p) {
+                    return p.address == sender.address().to_string() && p.port == sender.port();
+                });
+                if (it == peers_.end()) continue; //unknown sender
+                //lock when writing to last_active_
+                std::lock_guard<std::mutex> lock(m_);
+                //sets last active to current time for sender node
+                last_active_[peer_key(*it)] = std::chrono::steady_clock::now();
             }
             // thread sleeps for 100ms; results in 10 checks every second
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 
-    uint8_t node_id_;
+    // helper: converts a peer to a key identifier (address + port)
+    static std::string peer_key(const Peer& p) { return p.address + ":" + std::to_string(p.port); }
+
     uint16_t listen_port_;
     std::vector<Peer> peers_;
 
@@ -148,6 +157,6 @@ private:
 
     mutable std::mutex m_;
 
-    std::map<uint8_t, std::chrono::steady_clock::time_point> last_active_;
+    std::map<std::string, std::chrono::steady_clock::time_point> last_active_;
     static constexpr int TIMEOUT_S = 6;
 };
