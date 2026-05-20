@@ -69,6 +69,7 @@ enable_testing()
 add_executable(crdt_tests
     tests/crdt_tests.cpp
 )
+target_include_directories(crdt_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 target_link_libraries(crdt_tests PRIVATE crdtpp_lib Catch2::Catch2WithMain)
 
