@@ -1,14 +1,14 @@
 #pragma once
 
 #include <asio.hpp>
-#include <nlohmann/json.hpp>
 #include <map>
 #include <chrono>
 #include <thread>
 #include <atomic>
+#include <algorithm>
 #include <mutex>
-#include <iostream>
 #include <string>
+#include <stdexcept>
 
 
 class Heartbeat {
@@ -22,13 +22,17 @@ public:
 
     // constructor
     Heartbeat(
-            uint8_t node_id,
             uint16_t listen_port,
             std::vector<Peer> peers
             )
-            : node_id_(node_id),
-            listen_port_(listen_port),
-            peers_(std::move(peers)) {}
+            : listen_port_(listen_port),
+            peers_(std::move(peers)) {
+        if (listen_port_ == 0) throw std::invalid_argument("Port cannot be 0");
+        for (const Peer& p : peers_) {
+            if (p.address.empty()) throw std::invalid_argument("Peer address cannot be empty");
+            if (p.port == 0) throw std::invalid_argument("Peer port cannot be 0");
+        }
+    }
 
     // destructor; called automatically when the object goes out of scope
     ~Heartbeat() {
@@ -50,16 +54,26 @@ public:
     }
 
     // checks if a node is active within TIMEOUT_S seconds
-    bool is_active(uint8_t node_id) const {
+    [[nodiscard]] bool is_active(const Peer& p) const {
         std::lock_guard<std::mutex> lock(m_); //lock before reading last_active_
         // finds last_active_ value of node
-        auto it = last_active_.find(node_id);
+        auto it = last_active_.find(peer_key(p));
         if (it == last_active_.end()) return false; // if node has never been active, returns false
         // retrieves last time node has been active
         auto time_since_active =
                 std::chrono::steady_clock::now() - it -> second;
         //true if time sice active is less than TIMEOUT_S seconds ago
         return time_since_active < std::chrono::seconds(TIMEOUT_S);
+    }
+
+    // retrieves vector of active peers
+    [[nodiscard]] std::vector<Peer> active_peers() const {
+        return filter_peers(true);
+    }
+
+    // retrieves vector of inactive peers
+    [[nodiscard]] std::vector<Peer> inactive_peers() const {
+        return filter_peers(false);
     }
 
 private:
@@ -70,13 +84,9 @@ private:
         asio::ip::udp::socket socket(io, asio::ip::udp::v4());
 
         while (running_) {
-            // build heartbeat payload
-            nlohmann::json packet = {
 
-                    {"node_id", node_id_},
-                    {"type", "heartbeat"}
-            };
-            std::string msg = packet.dump(); //json to string for transmission
+            // heartbeat payload
+            std::string msg = "heartbeat:" + std::to_string(listen_port_);
 
             // sends heartbeat to each peer
             for (const auto& peer : peers_) {
@@ -103,7 +113,7 @@ private:
         // set socket non-blocking to true (avoids forever waiting on packets), affects receive_from
         socket.non_blocking(true);
         // buffer memory for incoming packets
-        std::array<char, 1024> buffer;
+        std::array<char, 1024> buffer{};
 
         // receive loop
         while (running_) {
@@ -120,25 +130,54 @@ private:
                     error); // writes error, if any
 
             if (!error && len > 0) {
-                try {
-                    // parses payload string to json
-                    auto j = nlohmann::json::parse(
-                            buffer.data(), //start
-                            buffer.data() + len); //end
-                    uint8_t id = j.at("node_id").get<uint8_t>(); // retrieves node id
-
-                    //lock when writing to last_active_
-                    std::lock_guard<std::mutex> lock(m_);
-                    //sets last active to current time for sender node
-                    last_active_[id] = std::chrono::steady_clock::now();
-                } catch(...) {} // catches invalid payload with no further action
+                process_heartbeat(buffer, sender, len);
             }
             // thread sleeps for 100ms; results in 10 checks every second
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 
-    uint8_t node_id_;
+    // helper: processes a heartbeat retrieved by socket
+    void process_heartbeat(const std::array<char, 1024>& buffer, const asio::ip::udp::endpoint& sender, std::size_t len) {
+        // construct string from raw buffer bytes
+        std::string payload(buffer.data(), len);
+        // find seperator between type and port
+        auto seperator = payload.find(':');
+        if (seperator == std::string::npos) return; //skip packets without seperator
+        // extract port from payload (after seperator)
+        std::string port_str = payload.substr(seperator + 1);
+        //build key (address + port)
+        std::string key = sender.address().to_string() + ":" + port_str;
+        // retrieves the peer sending the data
+        auto it = std::find_if(
+                peers_.begin(),
+                peers_.end(),
+                [&] (const Peer& p) {
+                    return peer_key(p) == key;
+                });
+        if (it == peers_.end()) return; //unknown sender
+        //lock when writing to last_active_
+        std::lock_guard<std::mutex> lock(m_);
+        //sets last active to current time for sender node
+        last_active_[key] = std::chrono::steady_clock::now();
+    }
+
+    // helper: filters peers by active status
+    std::vector<Peer> filter_peers(bool active) const {
+        // empty vector of filtered peers
+        std::vector<Peer> filtered_peers;
+
+        // iterates through all peers
+        for (const Peer& p : peers_) {
+            // push back filtered peer
+            if (is_active(p) == active) filtered_peers.push_back(p);
+        }
+        return filtered_peers;
+    }
+
+    // helper: converts a peer to a key identifier (address + port)
+    static std::string peer_key(const Peer& p) { return p.address + ":" + std::to_string(p.port); }
+
     uint16_t listen_port_;
     std::vector<Peer> peers_;
 
@@ -148,6 +187,6 @@ private:
 
     mutable std::mutex m_;
 
-    std::map<uint8_t, std::chrono::steady_clock::time_point> last_active_;
+    std::map<std::string, std::chrono::steady_clock::time_point> last_active_;
     static constexpr int TIMEOUT_S = 6;
 };
