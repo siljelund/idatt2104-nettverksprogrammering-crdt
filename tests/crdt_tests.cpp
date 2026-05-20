@@ -5,8 +5,10 @@
 #include "or_set.hpp"
 #include "lamport_clock.hpp"
 #include "rga.hpp"
-
-// TODO: add tests when implementing CRDT-types
+#include "node.hpp"
+#include "node.cpp"
+#include <thread>
+#include <chrono>
 
 TEST_CASE("Placeholder, CI works") {
   REQUIRE(1 + 1 == 2);
@@ -495,4 +497,98 @@ TEST_CASE("RGA, delete on one node propagates through merge") {
   REQUIRE(b.value() == "ac");
 
   REQUIRE(a.merge(b).value() == "ac");
+}
+
+// Node
+TEST_CASE("Node, two nodes can connect to each other") {
+  Node node0(0, 2, 19000);
+  Node node1(1, 2, 19001);
+  node0.start();
+  node1.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  node0.connect("127.0.0.1", 19001);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  REQUIRE(node0.document_value() == "");
+  REQUIRE(node1.document_value() == "");
+
+  node0.stop();
+  node1.stop();
+}
+
+TEST_CASE("Node, after insert on Node 0, Node 1 receives and merges correctly") {
+  Node node0(0, 2, 19002);
+  Node node1(1, 2, 19003);
+  node0.start();
+  node1.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  node0.connect("127.0.0.1", 19003);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  node0.insert(0, 'A');
+  node1.wait_for_sync();
+
+  REQUIRE(node1.document_value() == "A");
+
+  node0.stop();
+  node1.stop();
+}
+
+TEST_CASE("Node, after increment on Node 1, Node 0 receives and merges correctly") {
+  Node node0(0, 2, 19004);
+  Node node1(1, 2, 19005);
+  node0.start();
+  node1.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  node0.connect("127.0.0.1", 19005);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  node1.increment();
+  node0.wait_for_sync();
+
+  REQUIRE(node0.counter_value() == 1);
+
+  node0.stop();
+  node1.stop();
+}
+
+TEST_CASE("Node, both nodes converge to same document_value after concurrent inserts") {
+  Node node0(0, 2, 19006);
+  Node node1(1, 2, 19007);
+  node0.start();
+  node1.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  node0.connect("127.0.0.1", 19007);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  node0.insert(0, 'A');
+  node1.insert(0, 'B');
+
+  node0.wait_for_sync();
+  node1.wait_for_sync();
+
+  REQUIRE(node0.document_value() == node1.document_value());
+  REQUIRE(node0.document_value().size() == 2);
+
+  node0.stop();
+  node1.stop();
+}
+
+TEST_CASE("Node, stop() joins all threads without deadlock") {
+  Node node0(0, 2, 19008);
+  Node node1(1, 2, 19009);
+  node0.start();
+  node1.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  node0.connect("127.0.0.1", 19009);
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+
+  node0.insert(0, 'X');
+  node1.wait_for_sync();
+
+  node0.stop();
+  node1.stop();
+
+  REQUIRE(true);
 }
