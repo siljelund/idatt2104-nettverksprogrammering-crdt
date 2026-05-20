@@ -4,6 +4,7 @@
 #include "g_set.hpp"
 #include "or_set.hpp"
 #include "lamport_clock.hpp"
+#include "rga.hpp"
 
 // TODO: add tests when implementing CRDT-types
 
@@ -390,4 +391,108 @@ TEST_CASE("LamportClock, to_json() and from_json() preserves clock value") {
 
   REQUIRE(restored.value() == original.value());
   REQUIRE(restored == original);
+}
+
+// RGA
+TEST_CASE("RGA, basic insert and value()") {
+  LamportClock clock;
+  RGA rga(0, clock);
+  rga.insert(0, 'H');
+  rga.insert(1, 'i');
+  REQUIRE(rga.value() == "Hi");
+  REQUIRE(rga.size() == 2);
+}
+
+TEST_CASE("RGA, basic remove tombstones character") {
+  LamportClock clock;
+  RGA rga(0, clock);
+  rga.insert(0, 'a');
+  rga.insert(1, 'b');
+  rga.insert(2, 'c');
+  rga.remove(1);
+  REQUIRE(rga.value() == "ac");
+  REQUIRE(rga.size() == 2);
+}
+
+TEST_CASE("RGA, value() does not include tombstoned characters") {
+  LamportClock clock;
+  RGA rga(0, clock);
+  rga.insert(0, 'x');
+  rga.remove(0);
+  REQUIRE(rga.value() == "");
+  REQUIRE(rga.size() == 0);
+}
+
+TEST_CASE("RGA, commutativity: a.merge(b).value() == b.merge(a).value()") {
+  LamportClock ca, cb;
+  RGA a(0, ca); RGA b(1, cb);
+  a.insert(0, 'A'); a.insert(1, 'B');
+  b.insert(0, 'X'); b.insert(1, 'Y');
+  REQUIRE(a.merge(b).value() == b.merge(a).value());
+}
+
+TEST_CASE("RGA, associativity: a.merge(b).merge(c).value() == a.merge(b.merge(c)).value()") {
+  LamportClock ca, cb, cc;
+  RGA a(0, ca); RGA b(1, cb); RGA c(2, cc);
+  a.insert(0, 'A');
+  b.insert(0, 'B');
+  c.insert(0, 'C');
+  REQUIRE(a.merge(b).merge(c).value() == a.merge(b.merge(c)).value());
+}
+
+TEST_CASE("RGA, idempotency: a.merge(a).value() == a.value()") {
+  LamportClock clock;
+  RGA a(0, clock);
+  a.insert(0, 'H'); a.insert(1, 'i');
+  REQUIRE(a.merge(a).value() == a.value());
+}
+
+TEST_CASE("RGA, concurrent inserts at same position are resolved deterministically") {
+  LamportClock ca, cb;
+  RGA a(0, ca); RGA b(1, cb);
+  a.insert(0, 'A');
+  b.insert(0, 'B');
+  std::string from_a = a.merge(b).value();
+  std::string from_b = b.merge(a).value();
+  REQUIRE(from_a == from_b);
+  REQUIRE(from_a.size() == 2);
+}
+
+TEST_CASE("RGA, classic conflict: Node A inserts ' world', Node B inserts ' everyone' after 'Hello'") {
+  LamportClock ca, cb;
+  RGA a(0, ca);
+
+  a.insert(0, 'H'); a.insert(1, 'e'); a.insert(2, 'l'); a.insert(3, 'l'); a.insert(4, 'o');
+  REQUIRE(a.value() == "Hello");
+
+  RGA b = RGA::from_json(a.to_json(), 1, cb);
+  REQUIRE(b.value() == "Hello");
+
+  // Concurrent: A appends " world", B appends " everyone"
+  for (char ch : std::string(" world")) a.insert(a.size(), ch);
+  for (char ch : std::string(" everyone"))   b.insert(b.size(), ch);
+
+  RGA merged_ab = a.merge(b);
+  RGA merged_ba = b.merge(a);
+
+  // Both must converge to the same text
+  REQUIRE(merged_ab.value() == merged_ba.value());
+
+  // Both words must be present
+  std::string result = merged_ab.value();
+  REQUIRE(result.find("Hello")    != std::string::npos);
+  REQUIRE(result.find("world") != std::string::npos);
+  REQUIRE(result.find("everyone")   != std::string::npos);
+}
+
+TEST_CASE("RGA, delete on one node propagates through merge") {
+  LamportClock ca, cb;
+  RGA a(0, ca);
+  a.insert(0, 'a'); a.insert(1, 'b'); a.insert(2, 'c');
+
+  RGA b = RGA::from_json(a.to_json(), 1, cb);
+  b.remove(1);
+  REQUIRE(b.value() == "ac");
+
+  REQUIRE(a.merge(b).value() == "ac");
 }
