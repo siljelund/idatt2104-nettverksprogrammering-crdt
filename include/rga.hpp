@@ -22,10 +22,10 @@ class RGA {
     static constexpr uint8_t SENTINEL_AUTHOR = 0xFF;
     static constexpr uint64_t SENTINEL_TIMESTAMP = 0ULL;
 
-    RGA(uint8_t node_id, LamportClock& clock) : node_id_(node_id), clock_(clock) {}
+    RGA(uint8_t node_id, LamportClock& clock) : node_id_(node_id), clock_(&clock) {}
 
     void insert(std::size_t pos, char value) {
-      uint64_t ts = clock_.tick();
+      uint64_t ts = clock_->tick();
 
       uint8_t pa = SENTINEL_AUTHOR;
       uint64_t pts = SENTINEL_TIMESTAMP;
@@ -62,7 +62,7 @@ class RGA {
     }
 
     [[nodiscard]] RGA merge(const RGA& other) const {
-      RGA result(node_id_, clock_);
+      RGA result(node_id_, *clock_);
 
       std::vector<RGANode> nodes(list_.begin(), list_.end());
 
@@ -81,7 +81,7 @@ class RGA {
       build_ordered(SENTINEL_AUTHOR, SENTINEL_TIMESTAMP, nodes, result.list_);
 
       for (const auto& n : nodes) {
-        clock_.update(n.timestamp);
+        clock_->update(n.timestamp);
       }
 
       return result;
@@ -124,7 +124,7 @@ class RGA {
 
   private:
     uint8_t node_id_;
-    LamportClock& clock_;
+    LamportClock* clock_;
     std::list<RGANode> list_;
 
     std::list<RGANode>::iterator nth_visible(std::size_t n) {
