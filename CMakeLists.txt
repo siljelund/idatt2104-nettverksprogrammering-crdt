@@ -62,6 +62,7 @@ add_executable(editor_demo
         demo/editor_demo.cpp
         src/node.cpp
 )
+target_include_directories(editor_demo PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(editor_demo PRIVATE crdtpp_lib)
 
 enable_testing()
