@@ -1,52 +1,132 @@
+#include "node.hpp"
 #include "editor.hpp"
+#include <iostream>
 #include <sstream>
+#include <string>
+#include <thread>
+#include <chrono>
+#include <atomic>
+
+static void print_state(Node& node) {
+    std::cout << "document : \"" << node.document_value() << "\"\n";
+    std::cout << "counter : " << node.counter_value() << "\n";
+
+    auto active = node.active_peers();
+    auto inactive = node.inactive_peers();
+
+    std::cout << "peers online : ";
+    if (active.empty()) std::cout << "(none)";
+    for (const auto& p : inactive) {
+        std::cout << p.address << ":" << p.port << " ";
+    }
+    std::cout << "\n";
+}
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        // error for invalid arguments TODO maybe solve this a different way?
-        std::cerr << "Missing port. Run program like this (peers is optional): \n"
-        << "./editor_demo <port> <peer> <peer>\n" << "Example: ./editor_demo 9000 127.0.0.1:9001 192.168.1.10:9003\n";
-        return 1;
+    uint8_t node_id = 0;
+    uint16_t port = 0;
+    std::vector<uint16_t> peer_ports;
+
+    for (int i = 1; i < argc; i++) {
+        std::string flag = argv[i];
+        if ((flag == "--node") && i + 1 < argc) {
+            node_id = static_cast<uint8_t>(std::stoi(argv[++i]));
+        } else if ((flag == "--port") && i + 1 < argc) {
+            port = static_cast<uint16_t>(std::stoi(argv[++i]));
+        } else if ((flag == "--peers") && i + 1 < argc) {
+            std::stringstream ss(argv[++i]);
+            std::string token;
+            while (std::getline(ss, token, ',')) {
+                peer_ports.push_back(static_cast<uint16_t>(std::stoi(token)));
+            }
+        }
     }
 
-    uint16_t port;
-    // try converting string to int and cast it as uint16
-    try {
-        port = static_cast<uint16_t>(std::stoi(argv[1]));
-    } catch(const std::exception&) {
-        std::cerr << "Port must be a number";
+    if (port == 0) {
+        std::cerr << "Usage: ./editior_demo --node <id> --port <port> " "[--peers <port1,port2,...>]\n"
+        << "Example: ./editor_demo --node 0 --port 9000 --peers 9001,9002\n";
         return 1;
     }
 
     // empty vector of peers
     std::vector<Heartbeat::Peer> peers;
 
-    // for every peer argument
-    for (int i = 2; i < argc; i++) {
-        std::string arg = argv[i];
-        // stream argument for a peer
-        std::stringstream ss(arg);
+    for (uint16_t p : peer_ports) {
+        peers.push_back({"127.0.0.1", p});
+    }
 
-        // empty strings to hold address and port
-        std::string address;
-        std::string port_str;
+    auto num_nodes = static_cast<uint8_t>(1 + peer_ports.size());
+    Node node(node_id, num_nodes, port, std::move(peers));
+    node.start();
 
-        // store address as input before :
-        std::getline(ss, address, ':');
-        // store port as input after :
-        std::getline(ss, port_str);
+    std::cout << "Node " << static_cast<int>(node_id) << " listening on port " << port << "\n";
+    std::cout << "Waiting 1s for peers to come up...\n";
+    std::this_thread::sleep_for(std::chrono::seconds(1));
 
-        // try initializing a peer and push back
+    // backgroun thread to print notifications on incoming sync
+    std::atomic<bool> demo_running{true};
+    std::thread sync_watcher([&]() {
+        while (demo_running) {
+            node.wait_for_sync();
+            if (!demo_running) break;
+            std::cout << "\n[sync] document: \"" << node.document_value() << "\" counter: " << node.counter_value() << "\n> " << std::flush;
+        }
+    });
+
+    std::cout << "Commands: ins <pos> <text> | del <pos> <len> " "| inc | show | sync | quit\n> " << std::flush;
+
+    std::string line;
+    while (std::getline(std::cin, line)) {
+        std::istringstream iss(line);
+        std::string cmd;
+        iss >> cmd;
+
         try {
-            peers.push_back({address, static_cast<uint16_t>(std::stoi(port_str))});
-        } catch (const std::exception&) {
-            std::cerr << "Invalid peer format: '" << arg << "', expected 'address:port'\n";
-            return 1;
+            if (cmd == "quit") {
+                break;
+            } else if (cmd == "ins") {
+                std::size_t pos;
+                std::string text;
+                if (!(iss >> pos >> text)) {
+                    std::cout << "Usage: ins <pos> <text>\n";
+                } else {
+                    for (std::size_t i = 0; i < text.size(); ++i) {
+                        node.insert(pos + i, text[i]);
+                    }
+                    std::cout << "document: \"" << node.document_value() << "\" counter: " << node.counter_value() << "\"\n";
+                }
+            } else if (cmd == "del") {
+                std::size_t pos, len;
+                if (!(iss >> pos >> len)) {
+                    std::cout << "Usage: del <pos> <len>\n";
+                } else {
+                    for (std::size_t i = 0; i < len; ++i) {
+                        node.remove(pos);
+                    }
+                    std::cout << "document: \"" << node.document_value() << "\"\n";
+                }
+            } else if (cmd == "inc") {
+                node.increment();
+                std::cout << "document: \"" << node.document_value() << "\n";
+            } else if (cmd == "show") {
+                print_state(node);
+            } else if (cmd == "sync") {
+                node.sync_all();
+                std::cout << "synced.\n";
+            } else if (!cmd.empty()) {
+                std::cout << "Unknown command. " "Try: ins | del | inc | show | sync | quit\n";
+            }
+        } catch (const std::exception& e) {
+            std::cout << "Error: " << e.what() << "\n";
         }
 
+        std::cout << std::flush;
     }
-    // initialize and run editor with port and peers values
-    Editor editor(port, std::move(peers));
-    editor.run();
+
+    demo_running = false;
+    node.stop();
+    sync_watcher.join();
+
+    std::cout << "Goodbye\n";
     return 0;
 }
