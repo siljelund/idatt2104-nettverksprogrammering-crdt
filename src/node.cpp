@@ -10,7 +10,7 @@ static uint32_t swap32(uint32_t v) {
           ((v & 0xFF000000u) >> 24u);
 }
 
-Node::Node(uint8_t node_id, uint8_t num_nodes, uint16_t port) : node_id_(node_id)
+Node::Node(uint8_t node_id, uint8_t num_nodes, uint16_t port, std::vector<Heartbeat::Peer> peers) : node_id_(node_id)
   , clock_()
   , document_(node_id,clock_)
   , counter_(num_nodes, node_id)
@@ -18,10 +18,10 @@ Node::Node(uint8_t node_id, uint8_t num_nodes, uint16_t port) : node_id_(node_id
   , io_context_()
   , acceptor_(io_context_)
   , running_(true)
+  , heartbeat_(port, std::move(peers))
 {
   asio::ip::tcp::endpoint ep(asio::ip::tcp::v4(), port);
   acceptor_.open(ep.protocol());
-
   acceptor_.set_option(asio::ip::tcp::acceptor::reuse_address(true));
   acceptor_.bind(ep);
   acceptor_.listen();
@@ -34,8 +34,10 @@ Node::~Node() {
 // Interface
 
 void Node::start() {
+  heartbeat_.start();
   std::lock_guard<std::mutex> lock(threads_mutex_);
   threads_.emplace_back([this]() { accept_loop(); });
+  threads_.emplace_back([this]() { reconnect_loop(); });
 }
 
 void Node::connect(const std::string& host, uint16_t port) {
@@ -141,8 +143,17 @@ uint64_t Node::counter_value() const {
   return counter_.value();
 }
 
+std::vector<Heartbeat::Peer> Node::active_peers() const {
+  return heartbeat_.active_peers();
+}
+
+std::vector<Heartbeat::Peer> Node::inactive_peers() const {
+  return heartbeat_.inactive_peers();
+}
+
 void Node::stop() {
   running_ = false;
+  heartbeat_.stop();
   sync_cv_.notify_all();
 
   asio::error_code ec;
@@ -202,6 +213,34 @@ void Node::receive_loop(std::shared_ptr<asio::ip::tcp::socket> socket) {
     }
   }
   remove_socket(socket);
+}
+
+void Node::reconnect_loop() {
+  while (running_) {
+    for (const auto& peer : heartbeat_.active_peers()) {
+      if (!is_connected_to(peer.address, peer.port)) {
+        try {
+          connect(peer.address, peer.port);
+        } catch (...) {
+          // Ignore connection failures, will retry in next loop
+        }
+      }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
+}
+
+bool Node::is_connected_to(const std::string& host, uint16_t port) {
+  std::lock_guard<std::mutex> lock(crdt_mutex_);
+  for (const auto& s : sockets_) {
+    if (!s->is_open()) continue;
+    asio::error_code ec;
+    auto ep = s->remote_endpoint(ec);
+    if (!ec && ep.port() == port && ep.address().to_string() == host) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void Node::remove_socket(std::shared_ptr<asio::ip::tcp::socket> socket) {

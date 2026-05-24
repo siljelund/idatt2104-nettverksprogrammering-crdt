@@ -4,6 +4,7 @@
 #include <g_counter.hpp>
 #include <or_set.hpp>
 #include <lamport_clock.hpp>
+#include <heartbeat.hpp>
 
 #include <asio.hpp>
 #include <thread>
@@ -17,7 +18,7 @@
 
 class Node {
   public:
-    Node(uint8_t node_id, uint8_t num_nodes, uint16_t port);
+    Node(uint8_t node_id, uint8_t num_nodes, uint16_t port, std::vector<Heartbeat::Peer> peers = {});
     ~Node();
 
     void start();
@@ -32,6 +33,9 @@ class Node {
 
     [[nodiscard]] std::string document_value() const;
     [[nodiscard]] uint64_t counter_value() const;
+
+    [[nodiscard]] std::vector<Heartbeat::Peer> active_peers() const;
+    [[nodiscard]] std::vector<Heartbeat::Peer> inactive_peers() const;
 
     void stop();
     void wait_for_sync();
@@ -59,9 +63,13 @@ class Node {
 
     std::atomic<bool> running_;
 
+    Heartbeat heartbeat_;
+
     void accept_loop();
     void receive_loop(std::shared_ptr<asio::ip::tcp::socket> socket);
+    void reconnect_loop();
     void remove_socket(std::shared_ptr<asio::ip::tcp::socket> socket);
+    bool is_connected_to(const std::string& host, uint16_t port);
 
     static std::string read_message(asio::ip::tcp::socket& socket);
     static void write_message(asio::ip::tcp::socket& socket, const std::string& msg);
