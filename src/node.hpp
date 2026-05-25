@@ -15,6 +15,8 @@
 #include <atomic>
 #include <string>
 #include <chrono>
+#include <deque>
+#include <map>
 
 class Node {
   public:
@@ -23,8 +25,6 @@ class Node {
 
     void start();
     void connect(const std::string& host, uint16_t port);
-    void send_state(asio::ip::tcp::socket& socket);
-    void receive_state(asio::ip::tcp::socket& socket);
     void sync_all();
 
     void insert(std::size_t pos, char value);
@@ -38,7 +38,7 @@ class Node {
     [[nodiscard]] std::vector<Heartbeat::Peer> inactive_peers() const;
 
     void stop();
-    void wait_for_sync();
+    [[nodiscard]] bool wait_for_sync();
 
   private:
     uint8_t node_id_;
@@ -53,24 +53,31 @@ class Node {
     bool new_sync_received_ = false;
 
     asio::io_context io_context_;
+    asio::executor_work_guard<asio::io_context::executor_type> work_guard_;
     asio::ip::tcp::acceptor acceptor_;
+    asio::steady_timer reconnect_timer_;
+
+    struct WriteQueue {
+      std::deque<std::string> pending;
+      bool writing = false;
+    };
+
+    std::map<asio::ip::tcp::socket*, WriteQueue> write_queues_;
 
     std::vector<std::shared_ptr<asio::ip::tcp::socket>> sockets_;
     mutable std::mutex sockets_mutex_;
 
-    std::vector<std::thread> threads_;
-    std::mutex threads_mutex_;
-
+    std::thread io_thread_;
     std::atomic<bool> running_;
-
     Heartbeat heartbeat_;
 
-    void accept_loop();
-    void receive_loop(std::shared_ptr<asio::ip::tcp::socket> socket);
-    void reconnect_loop();
+    void start_accept();
+    void start_receive(std::shared_ptr<asio::ip::tcp::socket> socket);
+    void send_state_to(std::shared_ptr<asio::ip::tcp::socket> socket);
+    void enqueue_write(std::shared_ptr<asio::ip::tcp::socket> socket, std::string msg);
+    void do_write(std::shared_ptr<asio::ip::tcp::socket> socket);
+    void schedule_reconnect();
+    void process_message(const std::string& msg);
     void remove_socket(std::shared_ptr<asio::ip::tcp::socket> socket);
     bool is_connected_to(const std::string& host, uint16_t port);
-
-    static std::string read_message(asio::ip::tcp::socket& socket);
-    static void write_message(asio::ip::tcp::socket& socket, const std::string& msg);
 };

@@ -526,7 +526,7 @@ TEST_CASE("Node, after insert on Node 0, Node 1 receives and merges correctly") 
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   node0.insert(0, 'A');
-  node1.wait_for_sync();
+  (void)node1.wait_for_sync();
 
   REQUIRE(node1.document_value() == "A");
 
@@ -544,7 +544,7 @@ TEST_CASE("Node, after increment on Node 1, Node 0 receives and merges correctly
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   node1.increment();
-  node0.wait_for_sync();
+  (void)node0.wait_for_sync();
 
   REQUIRE(node0.counter_value() == 1);
 
@@ -564,8 +564,8 @@ TEST_CASE("Node, both nodes converge to same document_value after concurrent ins
   node0.insert(0, 'A');
   node1.insert(0, 'B');
 
-  node0.wait_for_sync();
-  node1.wait_for_sync();
+  (void)node0.wait_for_sync();
+  (void)node1.wait_for_sync();
 
   REQUIRE(node0.document_value() == node1.document_value());
   REQUIRE(node0.document_value().size() == 2);
@@ -584,7 +584,7 @@ TEST_CASE("Node, stop() joins all threads without deadlock") {
   std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
   node0.insert(0, 'X');
-  node1.wait_for_sync();
+  (void)node1.wait_for_sync();
 
   node0.stop();
   node1.stop();
