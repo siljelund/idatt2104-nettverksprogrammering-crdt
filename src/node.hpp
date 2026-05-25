@@ -23,8 +23,6 @@ class Node {
 
     void start();
     void connect(const std::string& host, uint16_t port);
-    void send_state(asio::ip::tcp::socket& socket);
-    void receive_state(asio::ip::tcp::socket& socket);
     void sync_all();
 
     void insert(std::size_t pos, char value);
@@ -38,7 +36,7 @@ class Node {
     [[nodiscard]] std::vector<Heartbeat::Peer> inactive_peers() const;
 
     void stop();
-    void wait_for_sync();
+    bool wait_for_sync();
 
   private:
     uint8_t node_id_;
@@ -70,6 +68,8 @@ class Node {
     void reconnect_loop();
     void remove_socket(std::shared_ptr<asio::ip::tcp::socket> socket);
     bool is_connected_to(const std::string& host, uint16_t port);
+    void send_state(asio::ip::tcp::socket& socket);
+    void receive_state(asio::ip::tcp::socket& socket);
 
     static std::string read_message(asio::ip::tcp::socket& socket);
     static void write_message(asio::ip::tcp::socket& socket, const std::string& msg);
