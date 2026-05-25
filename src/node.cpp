@@ -187,10 +187,18 @@ void Node::wait_for_sync() {
 
 // Private helpers
 void Node::accept_loop() {
+  asio::error_code ec;
+  acceptor_.non_blocking(true, ec);
+
   while (running_) {
     auto socket = std::make_shared<asio::ip::tcp::socket>(io_context_);
-    asio::error_code ec;
     acceptor_.accept(*socket, ec);
+
+    if (ec == asio::error::would_block) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      continue;
+    }
+
     if (ec) break;
 
     {
@@ -231,7 +239,7 @@ void Node::reconnect_loop() {
 }
 
 bool Node::is_connected_to(const std::string& host, uint16_t port) {
-  std::lock_guard<std::mutex> lock(crdt_mutex_);
+  std::lock_guard<std::mutex> lock(sockets_mutex_);
   for (const auto& s : sockets_) {
     if (!s->is_open()) continue;
     asio::error_code ec;

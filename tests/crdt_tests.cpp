@@ -6,7 +6,6 @@
 #include "lamport_clock.hpp"
 #include "rga.hpp"
 #include "node.hpp"
-#include "node.cpp"
 #include <thread>
 #include <chrono>
 
