@@ -178,11 +178,13 @@ void Node::stop() {
   }
 }
 
-void Node::wait_for_sync() {
+bool Node::wait_for_sync() {
   std::unique_lock<std::mutex> lock(crdt_mutex_);
   sync_cv_.wait_for(lock, std::chrono::seconds(2),
     [this]() { return new_sync_received_ || !running_; });
+  bool received = new_sync_received_;
   new_sync_received_ = false;
+  return received;
 }
 
 // Private helpers
