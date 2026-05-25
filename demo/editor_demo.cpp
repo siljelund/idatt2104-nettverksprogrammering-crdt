@@ -16,7 +16,7 @@ static void print_state(Node& node) {
 
     std::cout << "peers online : ";
     if (active.empty()) std::cout << "(none)";
-    for (const auto& p : inactive) {
+    for (const auto& p : active) {
         std::cout << p.address << ":" << p.port << " ";
     }
     std::cout << "\n";
@@ -67,9 +67,9 @@ int main(int argc, char* argv[]) {
     std::atomic<bool> demo_running{true};
     std::thread sync_watcher([&]() {
         while (demo_running) {
-            node.wait_for_sync();
-            if (!demo_running) break;
-            std::cout << "\n[sync] document: \"" << node.document_value() << "\" counter: " << node.counter_value() << "\n> " << std::flush;
+            if (node.wait_for_sync() && demo_running) {
+                std::cout << "\n[sync] document: \"" << node.document_value() << "\" counter: " << node.counter_value() << "\n> " << std::flush;
+            }
         }
     });
 
@@ -93,7 +93,7 @@ int main(int argc, char* argv[]) {
                     for (std::size_t i = 0; i < text.size(); ++i) {
                         node.insert(pos + i, text[i]);
                     }
-                    std::cout << "document: \"" << node.document_value() << "\" counter: " << node.counter_value() << "\"\n";
+                    std::cout << "document: \"" << node.document_value() << "\" counter: " << node.counter_value() << "\n";
                 }
             } else if (cmd == "del") {
                 std::size_t pos, len;
@@ -107,7 +107,7 @@ int main(int argc, char* argv[]) {
                 }
             } else if (cmd == "inc") {
                 node.increment();
-                std::cout << "document: \"" << node.document_value() << "\n";
+                std::cout << "counter: \"" << node.counter_value() << "\n";
             } else if (cmd == "show") {
                 print_state(node);
             } else if (cmd == "sync") {
