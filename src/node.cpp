@@ -1,6 +1,7 @@
 #include "node.hpp"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <sys/socket.h>
 
 // Byte order helpers
 static uint32_t swap32(uint32_t v) {
@@ -215,9 +216,18 @@ void Node::accept_loop() {
 }
 
 void Node::receive_loop(std::shared_ptr<asio::ip::tcp::socket> socket) {
+  struct timeval tv{};
+  tv.tv_usec = 200'000;
+  setsockopt(socket->native_handle(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
   while (running_) {
     try {
       receive_state(*socket);
+    } catch (const asio::system_error& e) {
+      if (e.code() == asio::error::try_again || e.code() == asio::error::would_block) {
+        continue;
+      }
+      break;
     } catch (...) {
       break;
     }
