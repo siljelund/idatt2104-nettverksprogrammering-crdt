@@ -92,12 +92,20 @@ void Node::increment() {
   sync_all();
 }
 
+void Node::decrement() {
+  {
+    std::lock_guard<std::mutex> lock(crdt_mutex_);
+    counter_.decrement();
+  }
+  sync_all();
+}
+
 std::string Node::document_value() const {
   std::lock_guard<std::mutex> lock(crdt_mutex_);
   return document_.value();
 }
 
-uint64_t Node::counter_value() const {
+int64_t Node::counter_value() const {
   std::lock_guard<std::mutex> lock(crdt_mutex_);
   return counter_.value();
 }
@@ -277,7 +285,7 @@ void Node::process_message(const std::string& msg) {
       (void)clock_.update(j.at("lamport").get<uint64_t>());
       auto remote_doc = RGA::from_json(j.at("document"), node_id_, clock_);
       document_ = document_.merge(remote_doc);
-      auto remote_counter = GCounter::from_json(j.at("counter"));
+      auto remote_counter = PNCounter::from_json(j.at("counter"));
       counter_ = counter_.merge(remote_counter);
       auto remote_users = ORSet<std::string>::from_json(j.at("users"));
       users_ = users_.merge(remote_users);

@@ -6,14 +6,53 @@
 #include <chrono>
 #include <atomic>
 
+static void print_help(uint8_t node_id, uint16_t port, const Node& node) {
+    auto peer_count = node.active_peers().size();
+    std::cout <<
+        "╔══════════════════════════════════════════════════════╗\n"
+        "║              crdtpp – CRDT Demo                      ║\n"
+        "║         Collaborative data structures in C++         ║\n"
+        "╚══════════════════════════════════════════════════════╝\n"
+        "\n"
+        "Node " << static_cast<int>(node_id) << " started on port " << port << "\n"
+        "Connected to " << peer_count << " peer(s)\n"
+        "\n"
+        "Available commands:\n"
+        "  ins <pos> <text>   – insert text at position\n"
+        "  del <pos> <len>    – delete characters at position\n"
+        "  inc                – increment shared counter\n"
+        "  dec                – decrement shared counter\n"
+        "  show               – show current state\n"
+        "  sync               – force sync with all peers\n"
+        "  help               – show this message again\n"
+        "  quit               – exit\n"
+        "\n"
+        "──────────────────────────────────────────────────────\n"
+        "Try these examples to demonstrate each CRDT type:\n"
+        "\n"
+        "  G-Counter / PN-Counter (shared counter):\n"
+        "    Run on any node:  inc\n"
+        "    Run on any node:  dec\n"
+        "    Run on any node:  show\n"
+        "    → Counter reflects net sum across all nodes\n"
+        "\n"
+        "  RGA (collaborative text editing):\n"
+        "    Run on node 0:    ins 0 Hello\n"
+        "    Run on node 1:    ins 5 World\n"
+        "    Run on any node:  show\n"
+        "    → Both edits survive and all nodes converge to same text\n"
+        "\n"
+        "──────────────────────────────────────────────────────\n"
+        << std::flush;
+}
+
 static void print_state(Node& node) {
-    std::cout << "document : \"" << node.document_value() << "\"\n";
-    std::cout << "counter : " << node.counter_value() << "\n";
+    std::cout << "Document : \"" << node.document_value() << "\"\n";
+    std::cout << "Counter : " << node.counter_value() << "\n";
 
     auto active = node.active_peers();
-    auto inactive = node.inactive_peers();
 
-    std::cout << "peers online : ";
+    std::cout << "Peers online : ";
     if (active.empty()) std::cout << "(none)";
     for (const auto& p : active) {
         std::cout << p.address << ":" << p.port << " ";
@@ -58,9 +97,8 @@ int main(int argc, char* argv[]) {
     Node node(node_id, num_nodes, port, std::move(peers));
     node.start();
 
-    std::cout << "Node " << static_cast<int>(node_id) << " listening on port " << port << "\n";
-    std::cout << "Waiting 1s for peers to come up...\n";
     std::this_thread::sleep_for(std::chrono::seconds(1));
+    print_help(node_id, port, node);
 
     // backgroun thread to print notifications on incoming sync
     std::atomic<bool> demo_running{true};
@@ -72,7 +110,7 @@ int main(int argc, char* argv[]) {
         }
     });
 
-    std::cout << "Commands: ins <pos> <text> | del <pos> <len> " "| inc | show | sync | quit\n> " << std::flush;
+    std::cout << "> " << std::flush;
 
     std::string line;
     while (std::getline(std::cin, line)) {
@@ -83,6 +121,8 @@ int main(int argc, char* argv[]) {
         try {
             if (cmd == "quit") {
                 break;
+            } else if (cmd == "help") {
+                print_help(node_id, port, node);
             } else if (cmd == "ins") {
                 std::size_t pos;
                 std::string text;
@@ -107,19 +147,22 @@ int main(int argc, char* argv[]) {
             } else if (cmd == "inc") {
                 node.increment();
                 std::cout << "counter: \"" << node.counter_value() << "\n";
+            } else if (cmd == "dec") {
+                node.decrement();
+                std::cout << "counter: \"" << node.counter_value() << "\"\n";
             } else if (cmd == "show") {
                 print_state(node);
             } else if (cmd == "sync") {
                 node.sync_all();
                 std::cout << "synced.\n";
             } else if (!cmd.empty()) {
-                std::cout << "Unknown command. " "Try: ins | del | inc | show | sync | quit\n";
+                std::cout << "Unknown command. Type 'help' to see available commands.\n";
             }
         } catch (const std::exception& e) {
             std::cout << "Error: " << e.what() << "\n";
         }
 
-        std::cout << std::flush;
+        std::cout << "> " << std::flush;
     }
 
     demo_running = false;
