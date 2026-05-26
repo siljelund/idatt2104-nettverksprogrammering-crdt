@@ -45,12 +45,18 @@ void Node::start() {
 
 void Node::connect(const std::string& host, uint16_t port) {
   auto socket = std::make_shared<asio::ip::tcp::socket>(io_context_);
-  socket->connect(asio::ip::tcp::endpoint(asio::ip::make_address(host), port));
-  {
-    std::lock_guard<std::mutex> lock(sockets_mutex_);
-    sockets_.push_back(socket);
-  }
-  asio::post(io_context_, [this, socket]() { start_receive(socket); });
+  asio::ip::tcp::endpoint ep(asio::ip::make_address(host), port);
+  asio::post(io_context_, [this, socket, ep]() {
+    socket->async_connect(ep, [this, socket](const asio::error_code& ec) {
+      if (!ec) {
+        {
+          std::lock_guard<std::mutex> lock(sockets_mutex_);
+          sockets_.push_back(socket);
+        }
+        start_receive(socket);
+      }
+    });
+  });
 }
 
 void Node::sync_all() {
