@@ -7,6 +7,7 @@
 #include <atomic>
 #include <algorithm>
 #include <mutex>
+#include <condition_variable>
 #include <string>
 #include <stdexcept>
 
@@ -49,6 +50,11 @@ public:
     // stops send and receive loops, waits for threads to finish before returning
     void stop() {
         running_ = false;
+        {
+            std::lock_guard<std::mutex> lock(cv_mutex_);
+            stop_flag_ = true;
+        }
+        cv_.notify_all();
         if (sender_.joinable()) sender_.join();
         if (receiver_.joinable()) receiver_.join();
     }
@@ -98,7 +104,8 @@ private:
                 // sends payload through socket to endpoint
                 socket.send_to(asio::buffer(msg), endpoint);
             }
-            std::this_thread::sleep_for(std::chrono::seconds(2));
+            std::unique_lock<std::mutex> lock(cv_mutex_);
+            cv_.wait_for(lock, std::chrono::seconds(2), [this] { return stop_flag_; });
         }
     }
 
@@ -186,6 +193,9 @@ private:
     std::thread receiver_;
 
     mutable std::mutex m_;
+    std::mutex cv_mutex_;
+    std::condition_variable cv_;
+    bool stop_flag_ = false;
 
     std::map<std::string, std::chrono::steady_clock::time_point> last_active_;
     static constexpr int TIMEOUT_S = 6;

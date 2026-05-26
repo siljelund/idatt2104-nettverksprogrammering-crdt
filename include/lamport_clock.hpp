@@ -8,11 +8,11 @@ class LamportClock {
   public:
     LamportClock() : time_(0) {}
 
-    uint64_t tick() {
+    [[nodiscard]] uint64_t tick() {
       return ++time_;
     }
 
-    uint64_t update(uint64_t received_time) {
+    [[nodiscard]] uint64_t update(uint64_t received_time) {
       time_ = std::max(time_, received_time) + 1;
       return time_;
     }

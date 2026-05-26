@@ -342,7 +342,7 @@ TEST_CASE("LamportClock, tick() increments the clock by 1 each time") {
 
 TEST_CASE("LamportClock, update() takes max of local and received, then adds 1") {
   LamportClock c;
-  c.tick(); // time_ = 1
+  (void)c.tick(); // time_ = 1
 
   // received > local: jumps to received + 1
   REQUIRE(c.update(5) == 6);
@@ -351,9 +351,9 @@ TEST_CASE("LamportClock, update() takes max of local and received, then adds 1")
 
 TEST_CASE("LamportClock, update() with lower value still increments by 1") {
   LamportClock c;
-  c.tick();
-  c.tick();
-  c.tick(); // time_ = 3
+  (void)c.tick();
+  (void)c.tick();
+  (void)c.tick(); // time_ = 3
 
   // received < local: max(3, 1) + 1 = 4
   REQUIRE(c.update(1) == 4);
@@ -362,7 +362,7 @@ TEST_CASE("LamportClock, update() with lower value still increments by 1") {
 
 TEST_CASE("LamportClock, update() with higher value jumps to received + 1") {
   LamportClock c;
-  c.tick(); // time_ = 1
+  (void)c.tick(); // time_ = 1
 
   // received >> local: max(1, 100) + 1 = 101
   REQUIRE(c.update(100) == 101);
@@ -373,19 +373,19 @@ TEST_CASE("LamportClock, two clocks that ticked the same number of times are equ
   LamportClock a;
   LamportClock b;
 
-  a.tick();
-  a.tick();
-  b.tick();
-  b.tick();
+  (void)a.tick();
+  (void)a.tick();
+  (void)b.tick();
+  (void)b.tick();
 
   REQUIRE(a == b);
 }
 
 TEST_CASE("LamportClock, to_json() and from_json() preserves clock value") {
   LamportClock original;
-  original.tick();
-  original.tick();
-  original.tick(); // time_ = 3
+  (void)original.tick();
+  (void)original.tick();
+  (void)original.tick(); // time_ = 3
 
   nlohmann::json j = original.to_json();
   LamportClock restored = LamportClock::from_json(j);
@@ -590,4 +590,36 @@ TEST_CASE("Node, stop() joins all threads without deadlock") {
   node1.stop();
 
   REQUIRE(true);
+}
+
+TEST_CASE("Node, three nodes converge to same document_value after concurrent inserts") {
+  Node node0(0, 3, 19010);
+  Node node1(1, 3, 19011);
+  Node node2(2, 3, 19012);
+  node0.start(); node1.start(); node2.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  node0.connect("127.0.0.1", 19011);
+  node0.connect("127.0.0.1", 19012);
+  node1.connect("127.0.0.1", 19012);
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+  node0.insert(0, 'A');
+  node1.insert(0, 'B');
+  node2.insert(0, 'C');
+
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (std::chrono::steady_clock::now() < deadline) {
+    auto v0 = node0.document_value();
+    auto v1 = node1.document_value();
+    auto v2 = node2.document_value();
+    if (v0 == v1 && v1 == v2 && v0.size() == 3) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+
+  REQUIRE(node0.document_value() == node1.document_value());
+  REQUIRE(node1.document_value() == node2.document_value());
+  REQUIRE(node0.document_value().size() == 3);
+
+  node0.stop(); node1.stop(); node2.stop();
 }

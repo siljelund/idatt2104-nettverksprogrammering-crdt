@@ -2,13 +2,11 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 
-// Byte order helpers
-static uint32_t swap32(uint32_t v) {
-  return  ((v & 0x000000FFu) << 24u) |
-          ((v & 0x0000FF00u) << 8u) |
-          ((v & 0x00FF0000u) >> 8u) |
-          ((v & 0xFF000000u) >> 24u);
-}
+#ifdef _WIN32
+#  include <winsock2.h>
+#else
+#  include <arpa/inet.h>
+#endif
 
 // constructor / destructor
 Node::Node(uint8_t node_id, uint8_t num_nodes, uint16_t port, std::vector<Heartbeat::Peer> peers) : node_id_(node_id)
@@ -45,16 +43,18 @@ void Node::start() {
 
 void Node::connect(const std::string& host, uint16_t port) {
   auto socket = std::make_shared<asio::ip::tcp::socket>(io_context_);
-  socket->connect(asio::ip::tcp::endpoint(asio::ip::make_address(host), port));
-  {
-    std::lock_guard<std::mutex> lock(sockets_mutex_);
-    sockets_.push_back(socket);
-  }
-  {
-    std::lock_guard<std::mutex> lock(sockets_mutex_);
-    sockets_.push_back(socket);
-  }
-  asio::post(io_context_, [this, socket]() { start_receive(socket); });
+  asio::ip::tcp::endpoint ep(asio::ip::make_address(host), port);
+  asio::post(io_context_, [this, socket, ep]() {
+    socket->async_connect(ep, [this, socket](const asio::error_code& ec) {
+      if (!ec) {
+        {
+          std::lock_guard<std::mutex> lock(sockets_mutex_);
+          sockets_.push_back(socket);
+        }
+        start_receive(socket);
+      }
+    });
+  });
 }
 
 void Node::sync_all() {
@@ -92,12 +92,20 @@ void Node::increment() {
   sync_all();
 }
 
+void Node::decrement() {
+  {
+    std::lock_guard<std::mutex> lock(crdt_mutex_);
+    counter_.decrement();
+  }
+  sync_all();
+}
+
 std::string Node::document_value() const {
   std::lock_guard<std::mutex> lock(crdt_mutex_);
   return document_.value();
 }
 
-uint64_t Node::counter_value() const {
+int64_t Node::counter_value() const {
   std::lock_guard<std::mutex> lock(crdt_mutex_);
   return counter_.value();
 }
@@ -172,7 +180,7 @@ void Node::start_receive(std::shared_ptr<asio::ip::tcp::socket> socket) {
         remove_socket(socket);
         return;
       }
-      uint32_t len = swap32(*len_buf);
+      uint32_t len = ntohl(*len_buf);
       auto msg = std::make_shared<std::string>(len, '\0');
       asio::async_read(*socket, asio::buffer(msg->data(), len),
         [this, socket, msg](const asio::error_code& ec, std::size_t) {
@@ -229,7 +237,7 @@ void Node::do_write(std::shared_ptr<asio::ip::tcp::socket> socket) {
   q.writing = true;
 
   const std::string& body = q.pending.front();
-  uint32_t len_net = swap32(static_cast<uint32_t>(body.size()));
+  uint32_t len_net = htonl(static_cast<uint32_t>(body.size()));
   auto frame = std::make_shared<std::string>(4 + body.size(), '\0');
   std::memcpy(frame->data(), &len_net, 4);
   std::memcpy(frame->data() + 4, body.data(), body.size());
@@ -274,10 +282,10 @@ void Node::process_message(const std::string& msg) {
     auto j = nlohmann::json::parse(msg);
     {
       std::lock_guard<std::mutex> lock(crdt_mutex_);
-      clock_.update(j.at("lamport").get<uint64_t>());
+      (void)clock_.update(j.at("lamport").get<uint64_t>());
       auto remote_doc = RGA::from_json(j.at("document"), node_id_, clock_);
       document_ = document_.merge(remote_doc);
-      auto remote_counter = GCounter::from_json(j.at("counter"));
+      auto remote_counter = PNCounter::from_json(j.at("counter"));
       counter_ = counter_.merge(remote_counter);
       auto remote_users = ORSet<std::string>::from_json(j.at("users"));
       users_ = users_.merge(remote_users);

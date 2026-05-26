@@ -1,7 +1,7 @@
 #pragma once
 
 #include <rga.hpp>
-#include <g_counter.hpp>
+#include <pn_counter.hpp>
 #include <or_set.hpp>
 #include <lamport_clock.hpp>
 #include <heartbeat.hpp>
@@ -30,9 +30,10 @@ class Node {
     void insert(std::size_t pos, char value);
     void remove(std::size_t pos);
     void increment();
+    void decrement();
 
     [[nodiscard]] std::string document_value() const;
-    [[nodiscard]] uint64_t counter_value() const;
+    [[nodiscard]] int64_t counter_value() const;
 
     [[nodiscard]] std::vector<Heartbeat::Peer> active_peers() const;
     [[nodiscard]] std::vector<Heartbeat::Peer> inactive_peers() const;
@@ -45,7 +46,7 @@ class Node {
 
     LamportClock clock_;
     RGA document_;
-    GCounter counter_;
+    PNCounter counter_;
     ORSet<std::string> users_;
 
     mutable std::mutex crdt_mutex_;

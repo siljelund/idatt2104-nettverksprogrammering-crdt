@@ -1,6 +1,7 @@
 #pragma once
 
 #include "lamport_clock.hpp"
+#include <functional>
 #include <list>
 #include <string>
 #include <cstdint>
@@ -22,18 +23,18 @@ class RGA {
     static constexpr uint8_t SENTINEL_AUTHOR = 0xFF;
     static constexpr uint64_t SENTINEL_TIMESTAMP = 0ULL;
 
-    RGA(uint8_t node_id, LamportClock& clock) : node_id_(node_id), clock_(&clock) {}
+    RGA(uint8_t node_id, LamportClock& clock) : node_id_(node_id), clock_(clock) {}
 
     void insert(std::size_t pos, char value) {
-      uint64_t ts = clock_->tick();
+      uint64_t ts = clock_.get().tick();
 
       uint8_t pa = SENTINEL_AUTHOR;
       uint64_t pts = SENTINEL_TIMESTAMP;
 
       if (pos > 0) {
         auto it = nth_visible(pos - 1);
-        pa = it-> author;
-        pts = it-> timestamp;
+        pa = it->author;
+        pts = it->timestamp;
       }
 
       list_.push_back({value, node_id_, ts, false, pa, pts});
@@ -62,7 +63,7 @@ class RGA {
     }
 
     [[nodiscard]] RGA merge(const RGA& other) const {
-      RGA result(node_id_, *clock_);
+      RGA result(node_id_, clock_.get());
 
       std::vector<RGANode> nodes(list_.begin(), list_.end());
 
@@ -79,10 +80,6 @@ class RGA {
       }
 
       build_ordered(SENTINEL_AUTHOR, SENTINEL_TIMESTAMP, nodes, result.list_);
-
-      for (const auto& n : nodes) {
-        clock_->update(n.timestamp);
-      }
 
       return result;
     }
@@ -117,14 +114,14 @@ class RGA {
         n.pred_author = e.at("pred_author").get<uint8_t>();
         n.pred_timestamp = e.at("pred_timestamp").get<uint64_t>();
         result.list_.push_back(n);
-        clock.update(n.timestamp);
+        (void)clock.update(n.timestamp);
       }
       return result;
     }
 
   private:
     uint8_t node_id_;
-    LamportClock* clock_;
+    std::reference_wrapper<LamportClock> clock_;
     std::list<RGANode> list_;
 
     std::list<RGANode>::iterator nth_visible(std::size_t n) {
