@@ -2,13 +2,11 @@
 #include <nlohmann/json.hpp>
 #include <algorithm>
 
-// Byte order helpers
-static uint32_t swap32(uint32_t v) {
-  return  ((v & 0x000000FFu) << 24u) |
-          ((v & 0x0000FF00u) << 8u) |
-          ((v & 0x00FF0000u) >> 8u) |
-          ((v & 0xFF000000u) >> 24u);
-}
+#ifdef _WIN32
+#  include <winsock2.h>
+#else
+#  include <arpa/inet.h>
+#endif
 
 // constructor / destructor
 Node::Node(uint8_t node_id, uint8_t num_nodes, uint16_t port, std::vector<Heartbeat::Peer> peers) : node_id_(node_id)
@@ -174,7 +172,7 @@ void Node::start_receive(std::shared_ptr<asio::ip::tcp::socket> socket) {
         remove_socket(socket);
         return;
       }
-      uint32_t len = swap32(*len_buf);
+      uint32_t len = ntohl(*len_buf);
       auto msg = std::make_shared<std::string>(len, '\0');
       asio::async_read(*socket, asio::buffer(msg->data(), len),
         [this, socket, msg](const asio::error_code& ec, std::size_t) {
@@ -231,7 +229,7 @@ void Node::do_write(std::shared_ptr<asio::ip::tcp::socket> socket) {
   q.writing = true;
 
   const std::string& body = q.pending.front();
-  uint32_t len_net = swap32(static_cast<uint32_t>(body.size()));
+  uint32_t len_net = htonl(static_cast<uint32_t>(body.size()));
   auto frame = std::make_shared<std::string>(4 + body.size(), '\0');
   std::memcpy(frame->data(), &len_net, 4);
   std::memcpy(frame->data() + 4, body.data(), body.size());
