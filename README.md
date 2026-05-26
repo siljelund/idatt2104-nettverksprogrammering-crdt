@@ -36,10 +36,12 @@ A logical clock used for causal ordering in the RGA. Every sync message carries 
 - **TCP State Sync**
 
 Peers synchronize state over persistent TCP connections. Every insert, delete, or increment triggers a full broadcast of the document and counter state to all connected peers. Incoming state is merged automatically using each CRDT's merge function.
+TCP was chosen for its reliability and built-in flow control, ensuring that all updates arrive and are processed in order. A lost message would leave nodes permanently inconsistent, and rebuilding retransmission and ordering on top of UDP would duplicate what TCP alredy provides.
 
 - **UDP Heartbeat** 
 
-Each node sends a heartbeat to its peers every 2 seconds. A peer is marked inactive after 6 seconds without one.
+Each node sends a heartbeat to its peers every 2 seconds. A peer is marked inactive after 6 seconds without one. UDP is sufficient here because an occasional lost package only delays liveness by one interval. 
+Using UDP for heartbeats keeps the overhead low and avoids unnecessary TCP connection just for liveness tracking. 
 
 - **Terminal UI** 
 
