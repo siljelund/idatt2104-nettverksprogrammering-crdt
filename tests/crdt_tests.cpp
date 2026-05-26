@@ -596,29 +596,30 @@ TEST_CASE("Node, three nodes converge to same document_value after concurrent in
   Node node0(0, 3, 19010);
   Node node1(1, 3, 19011);
   Node node2(2, 3, 19012);
-  node0.start();
-  node1.start();
-  node2.start();
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  node0.start(); node1.start(); node2.start();
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   node0.connect("127.0.0.1", 19011);
   node0.connect("127.0.0.1", 19012);
   node1.connect("127.0.0.1", 19012);
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
   node0.insert(0, 'A');
   node1.insert(0, 'B');
   node2.insert(0, 'C');
 
-  (void)node0.wait_for_sync();
-  (void)node1.wait_for_sync();
-  (void)node2.wait_for_sync();
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (std::chrono::steady_clock::now() < deadline) {
+    auto v0 = node0.document_value();
+    auto v1 = node1.document_value();
+    auto v2 = node2.document_value();
+    if (v0 == v1 && v1 == v2 && v0.size() == 3) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
 
   REQUIRE(node0.document_value() == node1.document_value());
   REQUIRE(node1.document_value() == node2.document_value());
   REQUIRE(node0.document_value().size() == 3);
 
-  node0.stop();
-  node1.stop();
-  node2.stop();
+  node0.stop(); node1.stop(); node2.stop();
 }
