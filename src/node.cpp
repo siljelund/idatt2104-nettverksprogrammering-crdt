@@ -50,10 +50,6 @@ void Node::connect(const std::string& host, uint16_t port) {
     std::lock_guard<std::mutex> lock(sockets_mutex_);
     sockets_.push_back(socket);
   }
-  {
-    std::lock_guard<std::mutex> lock(sockets_mutex_);
-    sockets_.push_back(socket);
-  }
   asio::post(io_context_, [this, socket]() { start_receive(socket); });
 }
 
