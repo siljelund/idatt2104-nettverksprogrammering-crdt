@@ -1,5 +1,4 @@
 #include "node.hpp"
-#include "editor.hpp"
 #include <iostream>
 #include <sstream>
 #include <string>
