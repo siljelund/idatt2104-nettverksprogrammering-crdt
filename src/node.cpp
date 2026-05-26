@@ -274,7 +274,7 @@ void Node::process_message(const std::string& msg) {
     auto j = nlohmann::json::parse(msg);
     {
       std::lock_guard<std::mutex> lock(crdt_mutex_);
-      clock_.update(j.at("lamport").get<uint64_t>());
+      (void)clock_.update(j.at("lamport").get<uint64_t>());
       auto remote_doc = RGA::from_json(j.at("document"), node_id_, clock_);
       document_ = document_.merge(remote_doc);
       auto remote_counter = GCounter::from_json(j.at("counter"));

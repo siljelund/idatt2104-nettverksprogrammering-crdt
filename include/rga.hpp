@@ -114,7 +114,7 @@ class RGA {
         n.pred_author = e.at("pred_author").get<uint8_t>();
         n.pred_timestamp = e.at("pred_timestamp").get<uint64_t>();
         result.list_.push_back(n);
-        clock.update(n.timestamp);
+        (void)clock.update(n.timestamp);
       }
       return result;
     }
