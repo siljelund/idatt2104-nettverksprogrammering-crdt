@@ -134,6 +134,7 @@ Start a node by specifying its ID, port, and optionally a comma-separated list o
 | `ins <pos> <text>` | Insert text at the given position in the shared document |
 | `del <pos> <len>` | Delete `len` characters starting at `pos` |
 | `inc` | Increment the shared counter |
+| `dec` | Decrement the shared counter |
 | `show` | Print the current document, counter, and peer status |
 | `sync` | Manually broadcast state to all connected peers |
 | `quit` | Exit the program |
