@@ -5,8 +5,14 @@
 [![Build and Test](https://github.com/siljelund/idatt2104-nettverksprogrammering-crdt/actions/workflows/ci.yml/badge.svg)](https://github.com/siljelund/idatt2104-nettverksprogrammering-crdt/actions/workflows/ci.yml)
 
 ## Introduction
-A header-only C++ library implementing Conflict-free Replicated Data Types (CRDTs)
-for a peer-to-peer architecture. 
+
+Distributed systems face a fundamental challenge: _How do multiple nodes stay consistent when they update a shared state  at the same time?_ 
+
+**crdtpp** explores one answer: _Data types that can be updated independently on any node, and always merge into the same result._
+
+**crdtpp** is a proof-of-concept header-only C++ library implementing Conflict-Free Replicated Data Types (CRDTs) for a peer-to-peer architecture. The library provides five CRDT data types: G-Counter, PN-Counter, G-Set, OR-Set, and RGA. Each of the data types can be merged across replicas without coordination, keeping all nodes consistent even under concurrent updates.
+
+The networking layer uses Asio over TCP for state sync, as well as UDP for peer tracking. Every sync message includes a Lamport clock so the order of the edits is consistent across all nodes. A terminal demo runs multiple nodes on the same machine, where they can edit a shared text document and increment a shared counter. All edits converge automatically across peers.
 
 ## Implemented Functionality
 - **G-Counter** - 
